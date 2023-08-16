@@ -1,0 +1,7 @@
+1. 执行nf_test (创建nf-queue，并创建子线程处理)
+   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:build/home/nubosh/netfilter/app/lib3rd/lib/
+   ./nf_test
+   # cat /proc/net/netfilter/nfnetlink_queue
+
+2. 加载驱动 (将报文截获到nf-queue)
+   insmod ../driver/nf_test.ko
