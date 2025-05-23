@@ -1,0 +1,12 @@
+28  p1 = malloc(0x80 - 8);
+29  p2 = malloc(0x500 - 8);
+30  p3 = malloc(0x80 - 8);
+    malloc(0x10);  // prevent merging to top chunk
+
+39  int evil_chunk_size = 0x581;
+40  int evil_region_size = 0x580 - 8;
+
+45  *(p2-1) = evil_chunk_size;
+49  free(p2);
+
+56  p4 = malloc(evil_region_size);

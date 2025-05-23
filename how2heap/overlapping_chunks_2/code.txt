@@ -1,0 +1,20 @@
+21  int prev_in_use = 0x1;
+
+27  p1 = malloc(1000);
+28  p2 = malloc(1000);
+29  p3 = malloc(1000);
+30  p4 = malloc(1000);
+31  p5 = malloc(1000);
+
+33  real_size_p1 = malloc_usable_size(p1);
+34  real_size_p2 = malloc_usable_size(p2);
+35  real_size_p3 = malloc_usable_size(p3);
+36  real_size_p4 = malloc_usable_size(p4);
+37  real_size_p5 = malloc_usable_size(p5);
+
+53  free(p4);
+57  *(unsigned int *)((unsigned char *)p1 + real_size_p1 )
+        = real_size_p2 + real_size_p3 + prev_in_use + sizeof(size_t) * 2;
+61  free(p2);
+65  p6 = malloc(2000);
+66  real_size_p6 = malloc_usable_size(p6);

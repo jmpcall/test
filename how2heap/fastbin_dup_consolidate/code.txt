@@ -1,0 +1,8 @@
+ 6  void* p1 = malloc(0x40);
+ 7  void* p2 = malloc(0x40);
+ 
+10  free(p1);
+12  void* p3 = malloc(0x400);
+15  free(p1);
+
+18  malloc(0x40), malloc(0x40);

@@ -1,0 +1,8 @@
+13  volatile unsigned long stack_var=0;
+17  unsigned long *p=malloc(0x410);
+
+21  malloc(500);
+23  free(p);
+
+29  p[1]=(unsigned long)(&stack_var-2);
+35  malloc(0x410);

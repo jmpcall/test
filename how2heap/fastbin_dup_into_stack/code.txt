@@ -1,0 +1,16 @@
+14  int *a = malloc(8);
+15  int *b = malloc(8);
+15  int *c = malloc(8);
+
+23  free(a);
+29  free(b);
+32  free(a);
+
+36  unsigned long long *d = malloc(8);
+39  malloc(8);
+
+45  stack_var = 0x20;
+48  *d = (unsigned long long) (((char*)&stack_var) - sizeof(d));
+
+50  malloc(8);
+51  malloc(8);

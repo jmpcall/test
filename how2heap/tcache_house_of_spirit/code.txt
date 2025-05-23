@@ -1,0 +1,9 @@
+18  malloc(1);
+
+22  unsigned long long fake_chunks[10];
+28  fake_chunks[1] = 0x40;
+
+34  a = &fake_chunks[2];
+37  free(a);
+
+40  void *b = malloc(0x30);

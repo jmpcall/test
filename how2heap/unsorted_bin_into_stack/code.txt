@@ -1,0 +1,13 @@
+10  intptr_t stack_buffer[4] = {0};
+13  intptr_t* victim = malloc(0x100);
+16  intptr_t* p1 = malloc(0x100);
+
+19  free(victim);
+
+23  stack_buffer[1] = 0x100 + 0x10;
+24  stack_buffer[3] = (intptr_t)stack_buffer;
+
+29  victim[-1] = 32;
+30  victim[1] = (intptr_t)stack_buffer;
+
+34  char *p2 = malloc(0x100);

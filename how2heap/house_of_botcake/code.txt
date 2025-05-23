@@ -1,0 +1,22 @@
+28  intptr_t stack_var[4];
+
+35  intptr_t *x[7];
+36  for(int i=0; i<sizeof(x)/sizeof(intptr_t*); i++){
+37      x[i] = malloc(0x100);
+38  }
+39  intptr_t *prev = malloc(0x100);
+41  intptr_t *a = malloc(0x100);
+44  malloc(0x10);
+
+49  for(int i=0; i<7; i++){
+50      free(x[i]);
+51  }
+
+53  free(a);
+56  free(prev);
+59  malloc(0x100);
+61  free(a);
+
+69  a = malloc(0x100);
+70  memset(a, 0, 0x100);
+71  prev[0x110/sizeof(intptr_t)] = 0x41414141;

@@ -1,0 +1,19 @@
+12  void *ptrs[8];
+13  for (int i=0; i<8; i++) {
+14      ptrs[i] = malloc(8);
+15  }
+16  for (int i=0; i<7; i++) {
+17      free(ptrs[i]);
+18  }
+
+21  int *a = calloc(1, 8);
+22  int *b = calloc(1, 8);
+23  int *c = calloc(1, 8);
+
+30  free(a);
+36  free(b);
+39  free(a);
+
+42  a = calloc(1, 8);
+43  b = calloc(1, 8);
+44  c = calloc(1, 8);

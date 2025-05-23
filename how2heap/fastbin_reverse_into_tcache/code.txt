@@ -1,0 +1,20 @@
+6   const size_t allocsize = 0x40;
+21  char* ptrs[14];
+22  size_t i;
+
+23  for (i = 0; i < 14; i++) {
+24      ptrs[i] = malloc(allocsize);
+25  }
+31  for (i = 0; i < 7; i++) free(ptrs[i]);
+
+33  char* victim = ptrs[7];
+37  free(victim);
+46  for (i = 8; i < 14; i++) free(ptrs[i]);
+
+49  size_t stack_var[6];
+50  memset(stack_var, 0xcd, sizeof(stack_var));
+63  *(size_t**)victim = (size_t*)((long)&stack_var[0] ^ ((long)victim >> 12));
+
+70  for (i = 0; i < 7; i++) ptrs[i] = malloc(allocsize);
+93  malloc(allocsize);
+97  char *q = malloc(allocsize);

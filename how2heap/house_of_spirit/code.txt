@@ -1,0 +1,12 @@
+9   malloc(1);
+
+12  unsigned long long *a;
+14  unsigned long long fake_chunks[10] __attribute__ ((aligned (16)));
+
+20  fake_chunks[1] = 0x40;
+24  fake_chunks[9] = 0x1234;
+
+28  a = &fake_chunks[2];
+31  free(a);
+
+34  malloc(0x30);

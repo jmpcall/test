@@ -1,0 +1,18 @@
+21  size_t stack_var[0x10];
+22  size_t *target = NULL;
+
+25  for(int i=0; i<0x10; i++) {
+26      if(((long)&stack_var[i] & 0xf) == 0) {
+27          target = &stack_var[i];
+28          break;
+29      }
+30  }
+
+36  intptr_t *a = malloc(128);
+38  intptr_t *b = malloc(128);
+42  free(a);
+43  free(b);
+
+50  b[0] = (intptr_t)((long)target ^ (long)b >> 12);
+54  malloc(128);
+57  intptr_t *c = malloc(128);
