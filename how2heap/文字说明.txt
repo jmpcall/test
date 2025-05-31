@@ -32,7 +32,7 @@ tcache,random key:   glibc-2.34
  |- large_bin_attack (glibc-2.34)
  |- tcache_poisoning (glibc-2.34)
  |- fastbin_dup_into_stack (glibc-2.23)
- |- house_of_storm (glibc-2.34) (unsorted_bin_into_stack + large_bin_attack)
+ |- house_of_storm (glibc-2.27) (unsorted_bin_into_stack + large_bin_attack)
 
 tcache & fastbin，知多少
  |  // 加密指针，fastbin同理，但是由fd直接连接，不使用entry
@@ -59,7 +59,7 @@ next_chunk转移
  |- house_of_einherjar (glibc-2.34) (house_of_botcake + tcache_poisoning)
 虚胖吧，top_chunk
  |- house_of_force (glibc-2.27)
-释放吧，top_chunk
+释放吧，top_chunk (上车_IO_list_all)
  |- house_of_orange (glibc-2.23)    (橙子)
  |- house_of_tangerine (glibc-2.39) (橘子)
 
@@ -67,7 +67,7 @@ next_chunk转移
 arena转移
  |- house_of_gods (glibc-2.24)
  |- house_of_mind_fastbin (glibc-2.34)
-带上我，_IO_list_all
+hook system()
  |- house_of_roman (glibc-2.23)
  |- house_of_water (glibc-2.36) (倒没有篡改libc变量，不过有一点和house_of_roman相似，也构造了一个地址不是按2*SIZE_SZ字节对齐的chunk)
 
@@ -75,43 +75,47 @@ arena转移
 
 
 1.  unsorted_bin_attack (glibc-2.27)
-将chunk(p)释放到unsorted bin，然后利用漏洞修改chunk(p)->bk (虽然bk在程序可用区域，但是chunk(p)当前为释放状态，正常情况修改不了)，使其指向fake_chunk，就将fake_chunk也链入unsorted bin了
+将chunk(p)释放到unsorted bin，然后利用漏洞修改chunk(p)->bk (比如UAF漏洞，因为chunk(p)当前为释放状态)，使其指向fake_chunk，就将fake_chunk也链入unsorted bin了
 细节: 
-chunk(p)被malloc()分配到了:
+chunk(p)被malloc(0x410)分配到了:
   chunk(p)没有移入其它bin，所以fd保持不变
   停止遍历unsorted_bin，从而fake_chunk仍然停留在unsorted bin
-  fake_chunk->fd，指向了unsorted_bin (见: unsorted_bin-rm_chunk.png)
-chunk(p)被malloc()取走了，但是unsorted_bin->fd，仍然指向chunk(p) (libc实质上仅使用bk指针，管理unsorted_bin链表)
-unsorted bin特性: FIFO、不按大小排序
+  unsorted_bin->fd，仍然指向chunk(p)，fake_chunk->fd，指向了unsorted_bin (libc实质上仅使用bk指针，管理unsorted_bin链表，见: unsorted_bin-rm_chunk.png)
+unsorted_bin特性: FIFO、不按大小排序
 
 2.  unsorted_bin_into_stack (glibc-2.23)
-和unsorted_bin_attack.c相比，在malloc()之前，将chunk(victim)的大小改掉了，使其不满足malloc()的要求，从而使其移入smallbin[0]，然后继续遍历到fake_chunk，返回给了程序
+和unsorted_bin_attack.c相比，在执行malloc()之前，将chunk(victim)的大小改掉了，使其不满足malloc(0x100)的要求，从而使其移入smallbin[0]，然后继续遍历，最终取出fake_chunk
 作用:
   使目标位置可以被malloc()分配到
   可以在目标位置，写入unsorted_bin地址
 
 3.  house_of_lore (glibc-2.34)
-修改smallbin chunk的bk指针，可以将伪造chunk，添加到smallbin，后续就可以分配到
-有tcache的话，伪造chunk会从tcache中转一下
+修改chunk->bk指针，也可以将fake_chunk，添加到smallbin
+和unsorted_bin的区别是，malloc(0x100)取到所需chunk后，会继续遍历smallbin，将后续chunk移入tcache，直到tcache填满为止
 
 4.  large_bin_attack (glibc-2.34)
-目标: 在指定位置，写入一个数值，见：house_of_storm、poison_null_byte
-      有些情况也可以利用unsorted bin，见：house_of_gods
-过程: chunk(p1)添加到large bin，改写bk指向fake_chunk(&target-4)，chunk(p2)添加到它们之间时，target值就为chunk(p2)
+修改chunk->bk指针，也可以将fake_chunk，添加到largebin
+演示程序过程: 
+  chunk(p1)添加到large_bin[0]，修改chunk(p1)->bk，使其指向&target-4，即fake_chunk，再触发chunk(p2)移入large_bin[0]，添加到它们之间时，fake_chunk->fd_nextsize，即target值，就会被写为chunk(p2)
+largebin特性: 按大小排序、不同大小的chunk组通过fd_nextsize、bd_nextsize连接
 
 5.  tcache_poisoning (glibc-2.34)
-chunk添加到tcache后，修改其fd值，即是修改其下个链接结点，实现将指定chunk，添加到tcache链表
+tcache中的chunk (tcache_entry)，通过fd指针相连 (tcache_entry->next)，修改fd值，可以将fake_chunk，添加到tcache链表
 
 6.  fastbin_dup_into_stack (glibc-2.23)
-目标:
-1. 释放两个相同chunk到fastbin，绕过double free检测
-   向fastbin添加chunk之前，只会检查链表头是否为要添加的chunk，不会检查整个链表 (见: double_free_check.png)；
-2. 类似tcache_poisoning
-   其中一个被分配出来后，另外一仍然在fastbin中，分配出来的，可以通过应用程序写入内容，控制其fd指针，最终可以将任意位置，分配给应用程序
+fastbin中的chunk，通过fd指针相连，修改fd值，可以将fake_chunk，添加到fastbin链表
+演示程序，还先展示了如何绕过fastbin的double free检测:
+  向fastbin添加chunk之前，只会检查链表头是否为要添加的chunk，不会检查整个链表 (见: double_free_check.png)
+double free可以转换为UAF进行利用:
+  chunk(a)一边链接在fastbin中，一边又被malloc()分配出去了，这样，程序就可以通过合法分配到的内存，改写释放状态的内存，更加接近实际的攻击
 
-7.  house_of_storm (glibc-2.34)
-unsorted_bin_into_stack + large_bin_attack (为了方便理解，fake_chunk处，按大端字节序写的)
-主要控制了一下libc地址泄漏到的位置，恰好在取出fake_chunk之前，改对了它的size
+7.  house_of_storm (glibc-2.27)
+先忽略138行之前的代码:
+  142~154：填满tcache[21] (个人认为这一步没什么必要，感兴趣可以实验一下)
+  159~169: 将large_chunk，释放到largebin[2]，将unsorted_chunk，释放到unsorted_bin
+  204:     修改unsorted_chunk->bk，将fake_chunk链入unsorted_bin
+  207,245：修改large_chunk->bk、large_chunk->bk_nextsize，使得unsorted_chunk移入large_bin[2]时，fake_chunk+8-shift_amoutn处，写入unsorted_chunk地址
+  73~138:  此时回头去看前面的代码，就是在为unsorted_chunk地址的写入位置，计算微调偏移，使得0x173，正好写入fake_chunk+8处，保证fake_chunk->size满足calloc()执行过程中的检查 (见: malloc-check.png)
 
 8.  decrypt_safe_linking (glibc-2.34)
 node:     A15A14A13A12A11A10A9A8A7A6A5A4A3A2A1A0
@@ -126,109 +130,123 @@ node地址也可以表示为：B15B14B13B12B11B10B9B8B7B6B5B4B3A2A1A0
 同理可求：B9B8B7、B6B5B4、B3B2B1、B0，也就是说，仅通过加密指针本身，就可以还原出nextnode地址
 
 9.  tcache_stashing_unlink_attack (glibc-2.34)
-如果没有tcache，或已满，从smallbin取出的每个chunk，都要检查chunk->bk->fd == chunk
-如果有tcache，且未满，从smallbin取出chunk，只会对第一个取出chunk进行检查，后续取出到到tcache的不做检查
-用于分配可以添加到smallbin，且不满足检查条件的chunk
+如果没有tcache，或已满:
+  从smallbin取出的每个chunk，都要检查chunk->bk->fd == chunk
+如果有tcache，且未满:
+  从smallbin取出chunk，只会对第一个取出chunk进行检查，后续chunk会移入tcache，并且不做检查
+  从tcache分配，也不检查chunk->bk->fd == chunk，最终绕过这个检查
 
 10. fastbin_reverse_into_tcache (glibc-2.34)
-fastbin FILO，tcache FILO
-=> 位于fastbin链表尾(最先添加位置)的chunk，会最后取出
-=> 最后取出的chunk，会添加到tcache链表头(最新添加位置)，所以chunks从fastbin移到tcache后，会和原来的顺序相反
-
-11. fastbin_dup_consolidate (glibc-2.23)
-绕过double free检测，也是先挤出fastbin链表头(最新添加位置)，只不过是挤到unsorted bin
+fastbin FILO，tcache FILO，fastbin中的chunks移入tcache后，顺序会颠倒:
+最先从fastbin移出的chunk，也会最先移入tcache，那么在tcache中，就会最后才能被取出
 
 12. fastbin_dup (glibc-2.34)
-目标: 释放两个相同chunk到fastbin，绕过double free检测
 1. 向fastbin添加chunk之前，只会检查链表头是否为要添加的chunk，不会检查整个链表 (见: double_free_check.png)；
    否则严重影响释放效率
 2. malloc()优先从tcache获取chunk (见: __libc_malloc.png)，calloc()直接从top chunk分配chunk (见: __libc_calloc.png)；
    演示程序，也可以先malloc(a,b,c)，再填充tcache
 3. tcache比fastbin优先级高，所以要保证对应tcache是满的，再释放的chunk才会添加到fastbin；
-   tcache使用tcache_entry结果，连接chunk，fastbin直接使用chunk->fd
+   tcache使用tcache_entry对象，连接chunk，fastbin直接使用chunk->fd
 4. calloc()会对分配内存清零 (见: calloc-memset.png)。(42: chunk(a)->fd = NULL)
 
+11. fastbin_dup_consolidate (glibc-2.23)
+绕过double free检测，也是先挤出fastbin链表头(最新添加位置)，只不过是挤到unsorted_bin
+
 13. house_of_spirit (glibc-2.23)
-目标位置周围内存内容可控，并且目标位置可以释放、分配、写入，就可以任意改写整个目标位置。
+目标位置周围内存内容可控，可以写入、释放、分配，就可以控制整个目标区域。
 https://colorlight.github.io/2021/06/17/%E5%A0%86%E5%88%A9%E7%94%A8%E7%B3%BB%E5%88%97%E5%85%AB%EF%BC%9A%C2%96House-of-Spirit
 
 14. tcache_house_of_spirit (glibc-2.34)
 相比释放到fastbin，释放到tcache，不用检查nextchunk->size
 
 15. unsafe_unlink (glibc-2.34)
-1. 在chunk0_ptr位置(本身为用户数据区)，构造一个fake_chunk，并保证：
+1. 在chunk0_ptr位置(属于程序可用区域)，构造一个fake_chunk，并保证：
    fake_chunk->fd->bk = &chunk0_ptr
    fake_chunk->bk->fd = &chunk0_ptr
-   使得unlink()时，不会向一个不可写的位置写入内容，其实，unlink(fake_chunk)最终会在&chunk0_ptr处，写入&chunk0_ptr-3
+   使得unlink()时，不会向一个不可写的位置写入内容 (unlink(fake_chunk)最终会在&chunk0_ptr处，写入&chunk0_ptr-3)
 2. 利用漏洞，向chunk1_ptr->prev_size处，写入0x420
-   free(chunk1_ptr)时，就会认为fake_chunk是它的prev_chunk，并且状态为free，所以执行合并，合并前先会unlink(fake_chunk)
+   free(chunk1_ptr)时，就会认为fake_chunk是它的prev_chunk，并且状态为free，所以就会触发合并，合并前先会unlink(fake_chunk)
 
 16. poison_null_byte (glibc-2.34)
-分配释放会影响fd、bk、fd_nextsize、bk_nextsize值，如果通过程序交互，可写入的范围有限，可以利用这一点
+chunk在bins中移入、移出，会修改fd、bk、fd_nextsize、bk_nextsize值，如果不方便获取一些chunk运行时的地址，或者通过程序交互，可写入的范围有限
+演示程序利用这一点，设置了chunk(prev)->fd_nextsize、bk_nextsize，以及chunk(b)->fd
 剩余部分同unsafe_unlink
 
 17. overlapping_chunks (glibc-2.34)
-利用漏洞，修改chunk(p2)->size
-free(p2)时，还会与已释放的chunk(p4)合并
+利用漏洞，增加chunk(p2)->size
+扩大后的p2再被分配后，不再依赖溢出漏洞，就可以向chunk(p3)区域写入数据
 
 18. overlapping_chunks_2 (glibc-2.23)
 利用漏洞，修改chunk(p2)->size
-再等p2释放后，在下一处更大分配请求处，就可以把chunk(p3)当作用户数据区，返回给程序，不再需要溢出，就可以改写
+free(p2)时，还会与释放状态的next_chunk，即chunk(p4)合并
 
 19. house_of_botcake (glibc-2.34)
-chunk(prev)和chunk(a)已经释放合并，程序仍在将a当作分配空间用，通过prev，就可以控制程序的业务数据
+chunk(prev)和chunk(a)已经释放合并，程序仍在将a当作分配内存使用，比如用于存储一些函数指针，那么利用程序，就有机会控制prev再次被分配出去，并向让函数指针指向shellcode地址
 
 20. house_of_einherjar (glibc-2.34)
 house_of_botcake + tcache_poisoning
 
 21. house_of_force (glibc-2.27)
-利用漏洞，改写top chunk size为最大值，然后分配超级大的区间，就会让top chunk退回到低地址位置
-可以控制它正好在bss段附近，后续就可以把bss区间，分配给程序
+利用漏洞，改写top_chunk->size为最大值，然后分配超级大的区间，就可以让top_chunk"绕一圈"，退回到低地址位置
+精确设计分配大小，就可以控制top_chunk正好落在bss_var变量所在位置，后续就可以把该位置，分配给程序
 
 22. house_of_orange (glibc-2.23)
-将top chunk的size改为很小的值，再去分配一个较大的区间，就会触发top chunk扩展
-由于top_end与brk已经错开了，libc就会认为当时是非主分配区，新区域是mmap()分配的，不能连在旧的top chunk后面，从而将旧top chunk释放到unsorted bin
-构造_IO_FILE ...
-后续利用unsorted_bin_attack，修改_IO_list_all指针，使其指向unsorted bin，最后malloc()，会触发top从unsorted bin移到smallbin[4]，&smallbin[4]->fd又正好为_IO_list_all->file._chain的位置，这也是前面设置top[1]=0x61的目的
-malloc()还会触发abort()，打印错误时，会遍历_IO_list_all中的所有FILE对象，如果满足条件，执行它的__overflow函数
-__overflow已经在前面被设置为winner()，并且接收fp参数，winner()内部执行了system()函数，并将fp指向的"/bin/bash"传给它
+75,76:   利用漏洞，将top_chunk->size改为较小的值
+122:     再去分配一个大于top_chunk->size，小于32M(避免直接使用mmap())的区间，就会触发top chunk扩展 (brk = (char*)(MORECORE(size)))
+         随着top_chunk->size的改小，old_end的计算结果也会上移，就会误导malloc()执行_int_free(old_top)，将old_top释放到unsorted_bin (通常在扩展非主分配区的top_chunk时，才会这样)
+158:     此时top->fd = unsorted_bin，给它加上0x9a8偏移，就可以得到_IO_list_all变量地址
+175:     修改top->bk，准备unsorted_bin_attack
+182:     准备system()参数
+214:     设置top->size = 0x61，使top从unsorted_bin移出后，移入的是smallbin[4]
+225~153: 构造_IO_FILE_plus对象
+257:     从unsorted_bin遍历到fake_chunk时，发现其size<MINSIZE，触发abort()，进一步触发_IO_flush_all_lockp()，
+         此时前面构造的fp，已经位于_IO_list_all->file._chain上，并且符合__overflow()执行条件
+         __overflow已经在前面被设置为winner()，并且接收fp参数，winner()内部执行了system()函数，并传递fp指向的"/bin/bash"参数值
 
 23. house_of_tangerine (glibc-2.39)
-也是触发top chunk释放，但是是释放到tcache，并且释放了2次，为了后续满足tcache count检查
-再通过改fd，将fake_chunk添加到tcache，后续就可以分配到了
+也是触发top_chunk释放，但是是释放到tcache，并且释放了2次，为了后续满足tcache count检查
+再通过tcache_poisoning，将fake_chunk添加到tcache，后续就可以分配到了
 
 24. house_of_gods (glibc-2.24)
-利用unsorted_bin_into_stack方法，获取unsorted bin地址
-smallbin[7] = binat(9)，binmap第9位置1，即0x200(最低位为第0位)，后续作为binmap-chunk的size
-单线程程序，只有一个arena，所以main_arena的next指向自己，后续作为binmap-chunk的bk
-再利用unsorted_bin_attack方法，将binmap-chunk添加到unsorted bin (bk赋值：binmap-chunk相对unsorted bin，偏移0x7f8)
-将FAST20、FAST40释放到fastbin，分别作为binmap-chunk->bk的size、bk (2*SIZE_SZ < size <= av->system_mem)
-unlink(unsorted bin chunks)的过程中，会将unsorted bin地址，写入narenas变量，使其大于1
-binmap-chunk已经分配给程序了，可以利用交互，在其bk位置，写入fake_arena地址 (bk位置同时也是main_arena->next位置)
-触发2次reused_arena()，使thread_arena指向fake_arena，后续分配释放，就会使用fake_arena分配区
 https://github.com/Milo-D/house-of-gods/blob/master/rev2/HOUSE_OF_GODS.TXT
+112,119: 将SC释放到unsorted_bin，获取unsorted_bin地址
+130:     触发SC移入smallbin[7]，使binmap第9位置1(binat(9))，即0x200，后续作为binmap-chunk的size
+         单线程程序，只有一个arena，所以main_arena的next指向自己，后续作为binmap-chunk的bk
+155~171: 再利用unsorted_bin_attack方法，将binmap-chunk添加到unsorted_bin (binmap-chunk相对unsorted_bin，偏移0x7f8)
+199:     FAST40_CHUNK->bk = INIM_CHUNK
+204,209: &main_arena为binmap-chunk->bk，设置其size,bk (2*SIZE_SZ < size <= av->system_mem)
+223:     遍历unsorted_bin，直到取出binmap-chunk
+272:     将&narenas-0x10处视为chunk，链入unsortd_bin
+281:     修改main_arena->system_mem = 0xffffffffffffffff
+296:     遍历unsorted_bin，直到取出INTM_CHUNK，使得unsorted_bin地址，写入narenas变量，使其大于1
+314:     binmap-chunk已经分配给程序了，可以利用交互，在其bk位置(同时也是main_arena->next位置)，写入fake_arena地址
+324,331: 触发2次reused_arena()，使thread_arena指向fake_arena
+341~361: 后续的分配，就会使用thread_arena指向的伪造分配区
 
 25. house_of_mind_fastbin (glibc-2.34)
-构造fake_arena、fake_heap_info (两者位置关系：https://sploitfun.wordpress.com/2015/02/10/understanding-glibc-malloc/)
-修改chunk_ptr size标志位，欺骗libc，认为它是非主分配区分配的，就会向下64M对齐找sub_heap，进一步找到所属arena
-最终释放到fake_arena的fastbin
+122~144: 构造fake_arena、fake_heap_info (两者位置关系：https://sploitfun.wordpress.com/2015/02/10/understanding-glibc-malloc/)
+146~162: 在高于fake_heap_info，且离它不远的位置，分配fastbin_chunk
+167~173: 填满tcache，使后续释放fastbin_chunk时，移入fastbinsY[4]
+191:     设置fake_heap_info->arena
+208,230: 修改chunk_ptr->size标志位，欺骗libc，认为chunk_ptr是非主分配区分配的，就会向下64M对齐找sub_heap，进一步找到所属arena，最终释放到fake_arena的fastbin
 
 26. house_of_roman (glibc-2.23)
-main_arena_chunk用于两处，一是加入unsorted bin，泄漏libc地址，二是触发切割，后续加入fastbin[5]
-victim_chunk->fd最低一个字节清零，就会从指向relative_chunk，换到main_arena_chunk (top chunk起始位置+0x70+0x90)
-__memalign_hook变量下方是severity_list变量(0x00007f...)，并且当中空了8字节(0x0)，见：__malloc_hook.png、severity_list.png
-将__malloc_hook_adjust视为一个chunk，其size就为0x7f，属于fastbin[5]范围，最终可以将其链入fastbin，并分配给程序
-利用unsorted_bin_into_stack，以及低字节覆盖，将__malloc_hook变量附近的区域，当作chunk链入unsorted bin
-再次利用unsorted_bin_into_stack，以及低字节覆盖，将__malloc_hook变量修改为system函数地址
-最后执行一次malloc()，触发__malloc_hook，即system()执行
+122~143: 构造一个size=0x71，并且fd指向bins区域的chunk (先满足fd=&smallbin[7]，再通过切割，满足size=0x71)
+         直接分配释放0x70大小的chunk，会链入fastbin链表，不能控制fd指向bins区域
+149~201: victim_chunk->fd = main_arena_chunk (top_chunk起始位置+0x70+0x90)
+246~252：控制main_arena_chunk->fd指向，使其size=0x7f (__memalign_hook变量下方是severity_list变量(0x00007f...)，并且当中空了8字节(0x0)，见：__malloc_hook.png、severity_list.png)
+260~266: 将__malloc_hook_adjust指向的chunk分配给程序，用于后续控制__malloc_hook的值
+312~335: 利用unsorted_bin_attack，设置__malloc_hook = unsorted_bin
+357~383：通过交互，覆盖__malloc_hook低字节，修改为system函数地址
+392:     执行malloc()，触发__malloc_hook，即system()执行
 
 27. house_of_water (glibc-2.36)
-程序首次malloc()，会触发init()，先分配一个tcache
-free(fake_size_lsb)，会将fake_size_lsb添加到tcache->entries[60]，且tcache->counts[60] += 1
-free(fake_size_msb)，会将fake_size_lsb添加到tcache->entries[61]，且tcache->counts[61] += 1
-由于tcache是从top chunk起始位置分配的，按页对齐，所以fake_size_lsb低12位清零，就会到达tcache位置
-再将chunk(unsorted_start)释放到tcache->entries[1] (释放过程中，会将fd位置设置为tcache_key，所以需要恢复)
-再将chunk(unsorted_end)释放到tcache->entries[0] (释放过程中，会将fd位置设置为tcache_key，所以需要恢复)
-此时，就伪造出来一个fake_chunk，fd、bk分配指向..，并且满足：2*SIZE_SZ < size <= av->system_mem
-再将start、middle、end释放到unsorted bin，修改start->fd、end->bk，即可将middle替换为fake_chunk，后续可以分配给程序
+58:      程序首次执行malloc()，会触发init()，先分配一个tcache
+63:      free(fake_size_lsb)，会将fake_size_lsb添加到tcache->entries[60]，且tcache->counts[60] += 1
+64:      free(fake_size_msb)，会将fake_size_lsb添加到tcache->entries[61]，且tcache->counts[61] += 1
+68:      由于tcache是从top chunk起始位置分配的，按页对齐，所以fake_size_lsb低12位清零，就会到达tcache位置
+211,225: 再将chunk(unsorted_start)释放到tcache->entries[1] (释放过程中，会将fd位置设置为tcache_key，所以需要恢复)
+240~253：再将chunk(unsorted_end)释放到tcache->entries[0] (释放过程中，会将fd位置设置为tcache_key，所以需要恢复)
+         此时，就伪造出来一个fake_chunk，fd、bk分配指向..，并且满足：2*SIZE_SZ < size <= av->system_mem
+267~343: 再将start、middle、end释放到unsorted bin，修改start->fd、end->bk，即可将middle替换为fake_chunk，后续可以分配给程序
 
